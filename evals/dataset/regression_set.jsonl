@@ -1,0 +1,2 @@
+{"question": "What is the return policy duration?", "expected_answer": "30 days from purchase date", "expected_sources": ["return_policy.pdf"]}
+{"question": "How do I reset my password?", "expected_answer": "Click forgot password on login screen", "expected_sources": ["faq.md"]}
