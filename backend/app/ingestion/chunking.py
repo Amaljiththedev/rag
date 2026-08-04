@@ -1,3 +1,4 @@
+from typing import Dict, Any, List
 import re
 
 def split_by_section(text: str) -> list[dict]:
@@ -45,48 +46,57 @@ def chunk_section(section_text: str, chunk_size: int = 500, overlap: int = 50) -
     
     return chunks
 
+def chunk_document(text: str, source_file: str, company: str) -> list[dict]:
+    sections = split_by_section(text)
+    all_chunks = []
+    
+    for section in sections:
+        sub_chunks = chunk_section(section["text"], chunk_size=500, overlap=50)
+        for i, chunk_text in enumerate(sub_chunks):
+            all_chunks.append({
+                "chunk_id": f"{source_file}__{section['section'][:20]}__{i:03d}",
+                "source_file": source_file,
+                "company": company,
+                "section": section["section"],
+                "chunk_index": i,
+                "text": chunk_text
+            })
+    
+    return all_chunks
+
+
+class TextChunker:
+    """Chunker class for ingestion pipeline compatibility."""
+
+    def __init__(self, chunk_size: int = 500, overlap: int = 50):
+        self.chunk_size = chunk_size
+        self.overlap = overlap
+
+    def split_documents(self, raw_docs: list[dict]) -> list[dict]:
+        all_chunks = []
+        for doc in raw_docs:
+            source = doc.get("filename", "unknown")
+            text = doc.get("text", "") or doc.get("content", "")
+            chunks = chunk_document(text, source_file=source, company="Default")
+            for idx, c in enumerate(chunks):
+                all_chunks.append({
+                    "chunk_index": idx,
+                    "content": c["text"],
+                    "metadata": {
+                        "source_file": source,
+                        "section": c["section"],
+                        "chunk_id": c["chunk_id"]
+                    }
+                })
+        return all_chunks
+
+
 if __name__ == "__main__":
     with open("data/sec_filings/apple_10k_2013.txt", encoding="utf-8") as f:
         text = f.read()
-    sections = split_by_section(text)
-    # item8_sections = [s for s in sections if s["section"].startswith("Item 8") and len(s["text"]) > 100]
-    # item8_chunks = chunk_section(item8_sections[0]["text"], chunk_size=400, overlap=60)
-    # for i, chk in enumerate(item8_chunks):
-    #     print(f"Chunk {i+1}: {len(chk.split())} words")
-    chunks = []
-
-    for sec in sections:
-        sec_chunks = chunk_section(sec["text"], chunk_size=400, overlap=60)
-        for i, chk in enumerate(sec_chunks):
-            chunks.append({
-                "chunk_id": f"apple_10k_2013__{sec['section'][:15]}__{i:03d}",
-                "section": sec["section"],
-                "chunk_index": i,
-                "content": chk,
-                "metadata": {
-                    "filename": "apple_10k_2013.txt",
-                    "source_file": "apple_10k_2013.txt",
-                    "file_type": "txt"
-                }
-            })
     
-    print(f"Total Chunks Generated: {len(chunks)}")
-    print("=" * 60)
-    substantial_chunks = [c for c in chunks if len(c['content'].split()) > 10]
-    for chk in substantial_chunks[:5]:
-        print(f"ID      : {chk['chunk_id']}")
-        print(f"Section : {chk['section']}")
-        print(f"Index   : {chk['chunk_index']}")
-        print(f"Words   : {len(chk['content'].split())}")
-        print(f"Preview : {chk['content'][:150]}...")
-        print("-" * 60)
-
-    item1a_chunks = [c for c in chunks if c["section"]   == "Item 1A. Risk Factors"]
-    print(f"Item 1A chunks found: {len(item1a_chunks)}")
-    print(f"First Item 1A chunk word count: {len(item1a_chunks[0]['content'].split())}")
-
-    # also print all unique section names to eyeball for duplicates/junk
-    unique_sections = sorted(set(c["section"] for c in chunks))
-    print(f"\nUnique sections ({len(unique_sections)}):")
-    for s in unique_sections:
-        print(f"  {s}")
+    chunks = chunk_document(text, "apple_10k_2013.txt", "Apple Inc.")
+    print(f"Total chunks: {len(chunks)}")
+    for c in chunks[:3]:
+        print(f"[{c['section']}] {c['text'][:100]}...")
+    

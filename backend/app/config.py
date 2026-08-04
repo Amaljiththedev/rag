@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # LLM & Embeddings
     OPENAI_API_KEY: str = ""
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     LLM_MODEL: str = "gpt-4o"
     LLM_PROVIDER: str = "openai"
 

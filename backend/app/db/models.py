@@ -22,7 +22,7 @@ class DocumentChunkModel(Base):
     document_id: Mapped[str] = mapped_column(String, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(1536), nullable=True)
+    embedding = mapped_column(Vector(384), nullable=True)
     metadata_json = mapped_column(JSON, default=dict)
 
 class QueryLogModel(Base):
