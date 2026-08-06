@@ -1,37 +1,33 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, Geist, Geist_Mono } from "next/font/google";
+import { Geist, IBM_Plex_Mono } from "next/font/google";
 import { Sidebar } from "@/components/Sidebar";
 import "./globals.css";
 
-// Serif display + sans UI text. The serif carries the app's identity.
-const display = Instrument_Serif({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: "400",
-});
-
-const body = Geist({
-  variable: "--font-body",
+const sans = Geist({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
-const mono = Geist_Mono({
+// Metadata only: page refs, counts, stage names, identifiers.
+const mono = IBM_Plex_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "Document Chat",
-  description: "Upload a document and ask questions answered only from it.",
+  title: "Atlas — Knowledge Workspace",
+  description:
+    "Index enterprise documents and retrieve citation-grounded answers.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${display.variable} ${body.variable} ${mono.variable} h-full antialiased`}
+      className={`${sans.variable} ${mono.variable} h-full`}
     >
-      <body className="min-h-full bg-paper text-ink-900">
+      <body className="min-h-full bg-canvas text-ink">
         <div className="flex h-screen">
           <Sidebar />
           <main className="flex-1 overflow-hidden">{children}</main>

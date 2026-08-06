@@ -39,6 +39,41 @@ def _noop_progress(stage: str, message: str, **extra) -> None:
     print(f"[{stage}] {message}")
 
 
+def _page_label(chunk: dict) -> str | None:
+    """'Page 18' or 'Pages 18–19'. None for sources without real pagination."""
+    start, end = chunk.get("page_start"), chunk.get("page_end")
+    if not start:
+        return None
+    return f"Page {start}" if not end or end == start else f"Pages {start}–{end}"
+
+
+def _cite_label(chunk: dict) -> str:
+    """Human-readable provenance shown to the model alongside each passage."""
+    parts = [chunk.get("source_file") or "Document"]
+    if chunk.get("section"):
+        parts.append(chunk["section"])
+    page = _page_label(chunk)
+    if page:
+        parts.append(page)
+    return " · ".join(parts)
+
+
+def _evidence(chunks: list[dict]) -> list[dict]:
+    """Provenance for the UI: where a passage came from, not its chunk id."""
+    return [
+        {
+            "n": i,
+            "document": c.get("source_file") or "Document",
+            "section": c.get("section"),
+            "page_label": _page_label(c),
+            "page_start": c.get("page_start"),
+            "page_end": c.get("page_end"),
+            "chunk_id": c["chunk_id"],
+        }
+        for i, c in enumerate(chunks, start=1)
+    ]
+
+
 def generate_answer(
     question: str,
     document_set_id: str,
@@ -52,23 +87,23 @@ def generate_answer(
     progress = on_progress or _noop_progress
 
     chunks = hybrid_search(question, document_set_id, top_k=top_k)
-    progress("retrieving", f"Found {len(chunks)} relevant passages", chunks=len(chunks))
+    progress("ranking", f"Ranking {len(chunks)} passages", chunks=len(chunks))
 
     if not chunks:
         return {
             "question": question,
             "answer": REFUSAL,
             "refused": True,
-            "sources": [],
+            "evidence": [],
         }
 
     context = "\n\n".join(
-        f"[{i}] (Section: {chunk['section']})\n{chunk['content']}"
+        f"[{i}] {_cite_label(chunk)}\n{chunk['content']}"
         for i, chunk in enumerate(chunks, start=1)
     )
     prompt = PROMPT_TEMPLATE.format(refusal=REFUSAL, context=context, question=question)
 
-    progress("generating", "Writing the answer")
+    progress("generating", "Preparing response")
     completion = get_client().chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -84,10 +119,5 @@ def generate_answer(
         "question": question,
         "answer": answer,
         "refused": refused,
-        "sources": []
-        if refused
-        else [
-            {"n": i, "chunk_id": c["chunk_id"], "section": c["section"]}
-            for i, c in enumerate(chunks, start=1)
-        ],
+        "evidence": [] if refused else _evidence(chunks),
     }

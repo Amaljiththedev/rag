@@ -28,7 +28,7 @@ async def query_documents(request: SessionQueryRequest):
         )
 
     try:
-        emit("retrieving", "Searching your document")
+        emit("retrieving", "Finding evidence")
         result = await run_in_threadpool(
             generate_answer,
             request.question,

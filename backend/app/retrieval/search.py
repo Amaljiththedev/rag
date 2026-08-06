@@ -43,7 +43,7 @@ def keyword_search(query: str, document_set_id: str, top_k: int = 10) -> list[di
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     cur.execute("""
-        SELECT chunk_id, section, content,
+        SELECT chunk_id, section, content, source_file, page_start, page_end,
                ts_rank(to_tsvector('english', content),
                        to_tsquery('english', %s)) AS rank
         FROM chunks
@@ -59,7 +59,10 @@ def keyword_search(query: str, document_set_id: str, top_k: int = 10) -> list[di
             "chunk_id": row[0],
             "section": row[1],
             "content": row[2],
-            "keyword_rank": row[3]
+            "source_file": row[3],
+            "page_start": row[4],
+            "page_end": row[5],
+            "keyword_rank": row[6]
         })
     cur.close()
     conn.close()
@@ -80,7 +83,8 @@ def search_chunks(query: str, document_set_id: str, top_k: int = 5) -> list[dict
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT chunk_id, section, content, embedding <=> %s::vector AS distance
+        SELECT chunk_id, section, content, source_file, page_start, page_end,
+               embedding <=> %s::vector AS distance
         FROM chunks
         WHERE document_set_id = %s
         ORDER BY distance
@@ -93,7 +97,10 @@ def search_chunks(query: str, document_set_id: str, top_k: int = 5) -> list[dict
             "chunk_id": row[0],
             "section": row[1],
             "content": row[2],
-            "distance": row[3]
+            "source_file": row[3],
+            "page_start": row[4],
+            "page_end": row[5],
+            "distance": row[6]
         })
 
     cur.close()

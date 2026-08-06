@@ -20,3 +20,5 @@ htmlcov/
 
 *.log
 logs/
+output.txt
+output_dense.txt

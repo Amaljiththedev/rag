@@ -2,108 +2,126 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { deleteChat, listChats, subscribe, type Chat } from "@/lib/chats";
+import { useWorkspaces } from "@/lib/useWorkspaces";
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    const refresh = () => setChats(listChats());
-    refresh();
-    setReady(true);
-    return subscribe(refresh);
-  }, []);
+  const { workspaces, loading, error } = useWorkspaces();
 
   return (
-    <aside className="flex h-screen w-[248px] shrink-0 flex-col border-r border-ink-200 bg-surface">
-      <div className="px-6 pt-7 pb-6">
-        <Link href="/" className="block">
-          <span className="font-display text-[22px] leading-none text-ink-900">
-            Document
-          </span>
-          <span className="font-display text-[22px] leading-none italic text-accent">
-            {" "}
-            Chat
-          </span>
+    <aside className="flex h-screen w-[264px] shrink-0 flex-col border-r border-line bg-canvas">
+      <div className="px-5 pt-6 pb-5">
+        <Link href="/" className="t150 text-[15px] font-semibold tracking-[-0.01em] hover:opacity-70">
+          Atlas
         </Link>
       </div>
 
-      <div className="px-6">
-        <Link
-          href="/"
-          className={[
-            "flex items-center justify-between border-t border-ink-200 py-2.5 text-[13px] transition-colors",
-            pathname === "/"
-              ? "text-accent"
-              : "text-ink-600 hover:text-ink-900",
-          ].join(" ")}
-        >
-          New upload
-          <span className="text-base leading-none">+</span>
-        </Link>
+      <div className="mx-5 border-t border-line" />
+
+      <div className="px-5 pt-5 pb-2">
+        <span className="eyebrow">Documents</span>
       </div>
 
-      <div className="mt-7 px-6 pb-3">
-        <span className="label-caps">Documents</span>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-6 pb-4">
-        {!ready && (
-          <div className="space-y-2">
-            <div className="shimmer h-4 w-full rounded-sm" />
-            <div className="shimmer h-4 w-4/5 rounded-sm" />
+      <nav className="flex-1 overflow-y-auto px-2.5 pb-3">
+        {loading && (
+          <div className="space-y-1.5 px-2.5 py-1">
+            <div className="line-ghost h-8 w-full" />
+            <div className="line-ghost h-8 w-full" />
           </div>
         )}
 
-        {ready && chats.length === 0 && (
-          <p className="text-[13px] leading-relaxed text-ink-400">
-            Nothing here yet. Upload a document to begin.
+        {!loading && error && (
+          <p className="px-2.5 py-2 text-[13px] leading-relaxed text-critical">
+            {error}
           </p>
         )}
 
-        <ul>
-          {chats.map((chat, i) => {
-            const href = `/chat/${chat.documentSetId}`;
+        {!loading && !error && workspaces.length === 0 && (
+          <p className="px-2.5 py-2 text-[13px] leading-relaxed text-muted">
+            No documents indexed.
+          </p>
+        )}
+
+        <ul className="space-y-px">
+          {workspaces.map((ws) => {
+            const href = `/workspace/${ws.document_set_id}`;
             const active = pathname === href;
             return (
-              <li key={chat.documentSetId} className="group relative">
+              <li key={ws.document_set_id}>
                 <Link
                   href={href}
-                  title={chat.filename}
+                  title={ws.filename}
                   className={[
-                    "flex items-baseline gap-2.5 border-t border-ink-200 py-2.5 pr-6 transition-colors",
-                    active ? "text-accent" : "text-ink-700 hover:text-ink-900",
+                    "t150 block rounded-sm px-2.5 py-2",
+                    active ? "bg-hover" : "hover:bg-hover",
                   ].join(" ")}
                 >
-                  <span className="font-mono text-[10px] tabular-nums text-ink-400">
-                    {String(i + 1).padStart(2, "0")}
+                  <span
+                    className={[
+                      "block truncate text-[13.5px] leading-snug",
+                      active ? "font-medium text-ink" : "text-ink/85",
+                    ].join(" ")}
+                  >
+                    {ws.filename}
                   </span>
-                  <span className="truncate text-[13px] leading-snug">
-                    {chat.filename}
+                  <span className="meta mt-0.5 block">
+                    {ws.page_count ?? 0} {ws.page_count === 1 ? "page" : "pages"}
+                    {" · "}
+                    {ws.chunk_count ?? 0} passages
                   </span>
                 </Link>
-                <button
-                  onClick={() => deleteChat(chat.documentSetId)}
-                  aria-label={`Remove ${chat.filename} from list`}
-                  className="absolute right-0 top-1/2 hidden -translate-y-1/2 px-1 text-[15px] leading-none text-ink-300 hover:text-danger group-hover:block"
-                >
-                  ×
-                </button>
               </li>
             );
           })}
         </ul>
       </nav>
 
-      <div className="border-t border-ink-200 px-6 py-4">
-        <p className="text-[11px] leading-relaxed text-ink-400">
-          Chats live in this browser only. Removing one here does not delete its
-          indexed text.
-        </p>
+      <div className="mx-5 border-t border-line" />
+
+      <div className="space-y-px p-2.5">
+        <Link
+          href="/"
+          className={[
+            "t150 flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-[13.5px]",
+            pathname === "/" ? "bg-hover font-medium" : "hover:bg-hover",
+          ].join(" ")}
+        >
+          <PlusGlyph />
+          New Workspace
+        </Link>
+        <Link
+          href="/settings"
+          className={[
+            "t150 flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-[13.5px]",
+            pathname === "/settings" ? "bg-hover font-medium" : "hover:bg-hover",
+          ].join(" ")}
+        >
+          <GearGlyph />
+          Settings
+        </Link>
       </div>
     </aside>
+  );
+}
+
+function PlusGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M7 2.8v8.4M2.8 7h8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function GearGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="2.1" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M7 1.6v1.3M7 11.1v1.3M12.4 7h-1.3M2.9 7H1.6M10.8 3.2l-.9.9M4.1 9.9l-.9.9M10.8 10.8l-.9-.9M4.1 4.1l-.9-.9"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

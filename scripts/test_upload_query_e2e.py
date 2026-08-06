@@ -26,7 +26,17 @@ def drop_sets(set_ids: list[str]):
         with conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM chunks WHERE document_set_id = ANY(%s);", (set_ids,))
-                print(f"[test] cleaned up {cur.rowcount} chunks from {len(set_ids)} test set(s)")
+                chunks_deleted = cur.rowcount
+                # The document_sets row drives the sidebar; leaving it behind
+                # would show a workspace with no content after every test run.
+                cur.execute(
+                    "DELETE FROM document_sets WHERE document_set_id = ANY(%s);",
+                    (set_ids,),
+                )
+                print(
+                    f"[test] cleaned up {chunks_deleted} chunks and "
+                    f"{cur.rowcount} set record(s) from {len(set_ids)} test set(s)"
+                )
     finally:
         conn.close()
 
@@ -122,16 +132,20 @@ def run_checks(created_sets: list[str]):
     result = resp.json()
     print(f"  QUESTION: {result['question']}\n")
     print(f"  ANSWER:\n{result['answer']}\n")
-    print("  SOURCES:")
-    for s in result["sources"]:
-        print(f"    [{s['n']}] {s['section']} ({s['chunk_id']})")
+    print("  EVIDENCE:")
+    for e in result["evidence"]:
+        location = " · ".join(filter(None, [e.get("section"), e.get("page_label")]))
+        print(f"    [{e['n']}] {e['document']} — {location or 'no section'}")
 
     if "87.4" not in result["answer"]:
         failures.append("answer did not contain the revenue figure 87.4")
     if "19.2" not in result["answer"]:
         failures.append("answer did not contain the R&D figure 19.2")
-    if not result["sources"]:
-        failures.append("answer returned no sources")
+    if not result["evidence"]:
+        failures.append("answer returned no evidence")
+    # Evidence must be citable: a page reference on every passage.
+    if not all(e.get("page_label") for e in result["evidence"]):
+        failures.append("some evidence had no page reference")
 
     # ---- 3. Isolation ----------------------------------------------------
     banner("STEP 3 — isolation: a second set must not see the first")
@@ -150,7 +164,11 @@ def run_checks(created_sets: list[str]):
     )
     other_answer = resp.json()["answer"]
     print(f"\n  ANSWER FROM OTHER SET:\n{other_answer}\n")
-    leaked = [c["chunk_id"] for c in resp.json()["sources"] if not c["chunk_id"].startswith(other_set_id)]
+    leaked = [
+        c["chunk_id"]
+        for c in resp.json()["evidence"]
+        if not c["chunk_id"].startswith(other_set_id)
+    ]
     if leaked:
         failures.append(f"chunks leaked across sets: {leaked}")
     if "87.4" in other_answer:

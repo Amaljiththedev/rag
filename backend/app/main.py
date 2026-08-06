@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.health import router as health_router
 from app.api.routes.query import router as query_router
 from app.api.routes.upload import router as upload_router
+from app.api.routes.workspaces import router as workspaces_router
 from app.config import settings
 from app.observability.logging import setup_logging
 from app.progress import hub
@@ -35,6 +36,7 @@ app.add_middleware(
 
 app.include_router(health_router, tags=["Health"])
 app.include_router(upload_router, tags=["Upload"])
+app.include_router(workspaces_router, tags=["Workspaces"])
 app.include_router(query_router, tags=["RAG Query"])
 
 

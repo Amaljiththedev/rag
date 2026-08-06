@@ -2,14 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { ProgressTrail } from "@/components/ProgressTrail";
+import { IndexingProgress } from "@/components/IndexingProgress";
 import { useProgressSocket } from "@/hooks/useProgressSocket";
-import { newChannelId, uploadFile } from "@/lib/api";
-import { createChat } from "@/lib/chats";
+import { newChannelId, uploadFile, type UploadResult } from "@/lib/api";
+import { notifyWorkspacesChanged } from "@/lib/useWorkspaces";
 
 const ACCEPTED = [".pdf", ".txt"];
 
-export default function HomePage() {
+export default function CreateWorkspacePage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const { event, open, close, reset } = useProgressSocket();
@@ -17,15 +17,19 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ name: string; size: number } | null>(null);
+  const [result, setResult] = useState<UploadResult | null>(null);
 
   async function handleFile(file: File) {
     const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
     if (!ACCEPTED.includes(ext)) {
-      setError(`Only ${ACCEPTED.join(" and ")} files are supported.`);
+      setError(`Unsupported file type. Atlas indexes ${ACCEPTED.join(" and ")} documents.`);
       return;
     }
 
     setError(null);
+    setResult(null);
+    setPending({ name: file.name, size: file.size });
     setBusy(true);
     reset();
 
@@ -34,15 +38,12 @@ export default function HomePage() {
     await open(channel);
 
     try {
-      const result = await uploadFile(file, channel);
-      createChat({
-        documentSetId: result.document_set_id,
-        filename: result.filename,
-        chunks: result.chunks_created,
-      });
-      router.push(`/chat/${result.document_set_id}`);
+      const uploaded = await uploadFile(file, channel);
+      setResult(uploaded);
+      notifyWorkspacesChanged();
+      router.push(`/workspace/${uploaded.document_set_id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed.");
+      setError(e instanceof Error ? e.message : "Indexing failed.");
       setBusy(false);
     } finally {
       close();
@@ -51,17 +52,14 @@ export default function HomePage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[560px] px-8 py-20">
-        <span className="label-caps">Upload</span>
-
-        <h1 className="font-display mt-4 text-[42px] leading-[1.12] text-ink-900">
-          Ask your document
-          <span className="italic text-accent"> anything.</span>
+      <div className="mx-auto max-w-[680px] px-10 py-16">
+        <span className="eyebrow">New Workspace</span>
+        <h1 className="mt-3 text-[32px] font-semibold leading-[1.15] tracking-[-0.02em]">
+          Create Workspace
         </h1>
-
-        <p className="mt-4 max-w-[42ch] text-[15px] leading-relaxed text-ink-500">
-          Every answer is drawn from the file you upload and cited back to it.
-          Nothing else is consulted.
+        <p className="mt-3 max-w-[54ch] text-[15px] leading-relaxed text-muted">
+          Atlas indexes the documents you provide and answers strictly from their
+          contents, citing the section and page each fact came from.
         </p>
 
         <div
@@ -78,9 +76,9 @@ export default function HomePage() {
             if (file) handleFile(file);
           }}
           className={[
-            "mt-11 border px-8 py-12 text-center transition-colors",
-            dragging ? "border-accent bg-accent-soft" : "border-ink-200 bg-surface",
-            busy ? "opacity-55" : "",
+            "t150 mt-10 rounded-lg border border-dashed px-8 py-14 text-center",
+            dragging ? "border-ink bg-hover" : "border-line bg-surface",
+            busy ? "opacity-60" : "",
           ].join(" ")}
         >
           <input
@@ -96,37 +94,45 @@ export default function HomePage() {
             }}
           />
 
-          <p className="font-display text-[19px] text-ink-700">
-            Drop a file here
-          </p>
+          <p className="text-[15px] font-medium">Drop documents</p>
+          <p className="meta mt-2">or</p>
 
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={busy}
-            className="mt-4 border-b border-accent pb-0.5 text-[13px] text-accent transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+            className="t150 mt-3 rounded-sm border border-line bg-surface px-3.5 py-1.5 text-[13.5px] hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy ? "Processing…" : "or choose one"}
+            Browse Files
           </button>
 
-          <p className="label-caps mt-7">PDF · TXT</p>
+          <p className="meta mt-6">PDF, TXT · up to 50 MB</p>
         </div>
 
-        {busy && (
-          <div className="mt-10 border-t border-ink-200 pt-6">
-            <ProgressTrail event={event} variant="upload" />
-          </div>
+        {(busy || result) && pending && (
+          <section className="mt-8 rounded-lg border border-line bg-surface">
+            <header className="flex items-baseline justify-between gap-4 border-b border-line-soft px-5 py-3">
+              <span className="truncate text-[13.5px] font-medium">{pending.name}</span>
+              <span className="meta shrink-0">
+                {(pending.size / 1024).toFixed(0)} KB
+                {result ? ` · ${result.page_count} pages · ${result.chunks_created} passages` : ""}
+              </span>
+            </header>
+            <div className="px-5 py-4">
+              <IndexingProgress event={event} variant="indexing" />
+            </div>
+          </section>
         )}
 
         {error && (
-          <p className="fade-rise mt-8 border-l-2 border-danger bg-danger-bg py-3 pl-4 pr-4 text-[13px] leading-relaxed text-danger">
+          <p className="enter mt-8 rounded-md border border-line bg-surface px-4 py-3 text-[13.5px] leading-relaxed text-critical">
             {error}
           </p>
         )}
 
-        <p className="mt-14 border-t border-ink-200 pt-5 text-[12px] leading-relaxed text-ink-400">
-          Scanned or image-only PDFs cannot be read yet — they would need OCR.
-          Use a digital PDF whose text you can select.
+        <p className="meta mt-12 leading-relaxed">
+          Scanned or image-only PDFs are not yet supported — they require OCR.
+          Provide a digital PDF with a text layer.
         </p>
       </div>
     </div>
