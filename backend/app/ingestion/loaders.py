@@ -3,6 +3,60 @@ import os
 import re
 from typing import Dict, Any, List
 
+
+def load_pdf(filepath: str) -> str:
+    """Extract text from a digital PDF, page by page."""
+    import pdfplumber
+
+    pages = []
+    skipped = 0
+    with pdfplumber.open(filepath) as pdf:
+        total = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text()
+            # extract_text() returns None for image-only pages. Scanned PDFs are
+            # entirely such pages and need OCR (pytesseract) to be readable —
+            # out of scope for now, digital PDFs only.
+            if text is None:
+                skipped += 1
+                continue
+            pages.append(text)
+
+    if skipped:
+        print(f"[loaders] {skipped}/{total} pages had no extractable text (image-only; needs OCR)")
+    if not pages:
+        raise ValueError(
+            f"No extractable text in {os.path.basename(filepath)}. "
+            "It is likely a scanned PDF, which requires OCR (not supported yet)."
+        )
+
+    print(f"[loaders] extracted text from {len(pages)}/{total} PDF pages")
+    return "\n\n".join(pages)
+
+
+def load_txt(filepath: str) -> str:
+    """Read a plain text file."""
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    if not text.strip():
+        raise ValueError(f"{os.path.basename(filepath)} is empty.")
+    print(f"[loaders] read {len(text):,} chars of text")
+    return text
+
+
+LOADERS = {".pdf": load_pdf, ".txt": load_txt}
+
+
+def load_file(filepath: str) -> str:
+    """Dispatch to the right loader based on file extension."""
+    ext = os.path.splitext(filepath)[1].lower()
+    loader = LOADERS.get(ext)
+    if loader is None:
+        raise ValueError(f"Unsupported file type '{ext}'. Supported: {', '.join(sorted(LOADERS))}")
+    print(f"[loaders] loading {os.path.basename(filepath)} as {ext}")
+    return loader(filepath)
+
+
 class DocumentLoader:
     """PDF/HTML/Markdown document loader returning raw text + metadata."""
 

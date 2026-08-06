@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from app.config import settings
 from app.observability.logging import setup_logging
 from app.api.routes.health import router as health_router
-from app.api.routes.ingest import router as ingest_router
+from app.api.routes.upload import router as upload_router
 from app.api.routes.query import router as query_router
 
 setup_logging()
@@ -20,7 +20,7 @@ app = FastAPI(
 )
 
 app.include_router(health_router, tags=["Health"])
-app.include_router(ingest_router, tags=["Ingestion"])
+app.include_router(upload_router, tags=["Upload"])
 app.include_router(query_router, tags=["RAG Query"])
 
 @app.get("/")

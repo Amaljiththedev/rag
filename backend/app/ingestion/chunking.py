@@ -46,12 +46,18 @@ def chunk_section(section_text: str, chunk_size: int = 500, overlap: int = 50) -
     
     return chunks
 
-def chunk_document(text: str, source_file: str, company: str) -> list[dict]:
+def chunk_document(text: str, source_file: str, company: str, chunk_size: int = 400, overlap: int = 60) -> list[dict]:
     sections = split_by_section(text)
+    # split_by_section only recognises SEC "Item N." headers. Arbitrary user
+    # uploads have none, so treat the whole document as a single section rather
+    # than returning zero chunks.
+    if not sections:
+        sections = [{"section": "Document", "text": text}]
+
     all_chunks = []
     
     for section in sections:
-        sub_chunks = chunk_section(section["text"], chunk_size=500, overlap=50)
+        sub_chunks = chunk_section(section["text"], chunk_size=chunk_size, overlap=overlap)
         for i, chunk_text in enumerate(sub_chunks):
             all_chunks.append({
                 "chunk_id": f"{source_file}__{section['section'][:20]}__{i:03d}",
@@ -68,7 +74,7 @@ def chunk_document(text: str, source_file: str, company: str) -> list[dict]:
 class TextChunker:
     """Chunker class for ingestion pipeline compatibility."""
 
-    def __init__(self, chunk_size: int = 500, overlap: int = 50):
+    def __init__(self, chunk_size: int = 400, overlap: int = 60):
         self.chunk_size = chunk_size
         self.overlap = overlap
 
@@ -77,7 +83,7 @@ class TextChunker:
         for doc in raw_docs:
             source = doc.get("filename", "unknown")
             text = doc.get("text", "") or doc.get("content", "")
-            chunks = chunk_document(text, source_file=source, company="Default")
+            chunks = chunk_document(text, source_file=source, company="Default", chunk_size=self.chunk_size, overlap=self.overlap)
             for idx, c in enumerate(chunks):
                 all_chunks.append({
                     "chunk_index": idx,
@@ -95,8 +101,9 @@ if __name__ == "__main__":
     with open("data/sec_filings/apple_10k_2013.txt", encoding="utf-8") as f:
         text = f.read()
     
-    chunks = chunk_document(text, "apple_10k_2013.txt", "Apple Inc.")
+    chunks = chunk_document(text, source_file="apple_10k_2013.txt", company="Apple Inc.", chunk_size=400, overlap=60)
     print(f"Total chunks: {len(chunks)}")
     for c in chunks[:3]:
         print(f"[{c['section']}] {c['text'][:100]}...")
+
     

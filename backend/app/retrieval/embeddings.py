@@ -72,7 +72,7 @@ if __name__ == "__main__":
         text = f.read()
 
     # Step 1: build chunks using chunk_document
-    chunks = chunk_document(text, source_file="apple_10k_2013.txt", company="Apple Inc.")
+    chunks = chunk_document(text, source_file="apple_10k_2013.txt", company="Apple Inc.", chunk_size=400, overlap=60)
     print(f"Total chunks to embed: {len(chunks)}")
 
     # Step 2: embed all of them
