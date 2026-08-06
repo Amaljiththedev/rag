@@ -35,18 +35,30 @@ def get_client() -> Groq:
     return _client
 
 
-def generate_answer(question: str, document_set_id: str, top_k: int = 5) -> dict:
+def _noop_progress(stage: str, message: str, **extra) -> None:
+    print(f"[{stage}] {message}")
+
+
+def generate_answer(
+    question: str,
+    document_set_id: str,
+    top_k: int = 5,
+    on_progress=None,
+) -> dict:
     """Answer a question using only the chunks belonging to document_set_id."""
     if not document_set_id:
         raise ValueError("generate_answer requires a document_set_id.")
 
+    progress = on_progress or _noop_progress
+
     chunks = hybrid_search(question, document_set_id, top_k=top_k)
-    print(f"[generate] retrieved {len(chunks)} chunks from set {document_set_id}")
+    progress("retrieving", f"Found {len(chunks)} relevant passages", chunks=len(chunks))
 
     if not chunks:
         return {
             "question": question,
             "answer": REFUSAL,
+            "refused": True,
             "sources": [],
         }
 
@@ -56,6 +68,7 @@ def generate_answer(question: str, document_set_id: str, top_k: int = 5) -> dict
     )
     prompt = PROMPT_TEMPLATE.format(refusal=REFUSAL, context=context, question=question)
 
+    progress("generating", "Writing the answer")
     completion = get_client().chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -63,10 +76,17 @@ def generate_answer(question: str, document_set_id: str, top_k: int = 5) -> dict
     )
     answer = completion.choices[0].message.content
 
+    # Chunks were retrieved but none answered the question. Citing them anyway
+    # would imply the refusal came from them.
+    refused = REFUSAL.rstrip(".") in (answer or "")
+
     return {
         "question": question,
         "answer": answer,
-        "sources": [
+        "refused": refused,
+        "sources": []
+        if refused
+        else [
             {"n": i, "chunk_id": c["chunk_id"], "section": c["section"]}
             for i, c in enumerate(chunks, start=1)
         ],

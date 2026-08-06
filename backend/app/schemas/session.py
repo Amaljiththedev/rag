@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ class SessionQueryRequest(BaseModel):
     document_set_id: str = Field(..., description="Set returned by POST /upload")
     question: str = Field(..., description="Question to answer from that set only")
     top_k: int = Field(default=5, ge=1, le=20)
+    channel: Optional[str] = Field(default=None, description="Progress WebSocket channel id")
 
 
 class SessionSource(BaseModel):
@@ -24,4 +25,5 @@ class SessionSource(BaseModel):
 class SessionQueryResponse(BaseModel):
     question: str
     answer: str
+    refused: bool = False
     sources: List[SessionSource] = []

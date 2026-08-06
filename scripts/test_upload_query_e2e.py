@@ -9,9 +9,26 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 
+import psycopg2
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.retrieval.search import DB_CONFIG
+
+
+def drop_sets(set_ids: list[str]):
+    """Remove only the sets this test created, so repeat runs don't accumulate rows."""
+    set_ids = [s for s in set_ids if s]
+    if not set_ids:
+        return
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM chunks WHERE document_set_id = ANY(%s);", (set_ids,))
+                print(f"[test] cleaned up {cur.rowcount} chunks from {len(set_ids)} test set(s)")
+    finally:
+        conn.close()
 
 SAMPLE_TEXT = [
     "Northwind Robotics — Fiscal Year 2024 Annual Summary",
@@ -59,6 +76,14 @@ def banner(title: str):
 
 
 def main():
+    created_sets = []
+    try:
+        run_checks(created_sets)
+    finally:
+        drop_sets(created_sets)
+
+
+def run_checks(created_sets: list[str]):
     client = TestClient(app)
     tmp_dir = tempfile.mkdtemp(prefix="rag_e2e_")
     failures = []
@@ -79,6 +104,7 @@ def main():
 
     upload = resp.json()
     document_set_id = upload["document_set_id"]
+    created_sets.append(document_set_id)
     print(f"  document_set_id: {document_set_id}")
     print(f"  filename:        {upload['filename']}")
     print(f"  chunks_created:  {upload['chunks_created']}")
@@ -115,6 +141,7 @@ def main():
             files={"file": ("southgate_bakery_2024.pdf", f, "application/pdf")},
         )
     other_set_id = resp.json()["document_set_id"]
+    created_sets.append(other_set_id)
     print(f"  second document_set_id: {other_set_id}")
 
     resp = client.post(

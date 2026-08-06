@@ -1,15 +1,12 @@
 import os
 import uuid
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional
 
 import psycopg2
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ingestion.loaders import DocumentLoader, load_file
-from app.ingestion.chunking import TextChunker, chunk_document
-from app.retrieval.embeddings import EmbeddingWrapper
+from app.ingestion.loaders import load_file
+from app.ingestion.chunking import chunk_document
 from app.retrieval.search import embed_text, DB_CONFIG
-from app.db.models import DocumentModel, DocumentChunkModel
 
 INSERT_CHUNK_SQL = """
     INSERT INTO chunks
@@ -22,12 +19,23 @@ INSERT_CHUNK_SQL = """
 """
 
 
-def ingest_file(filepath: str, document_set_id: Optional[str] = None) -> Dict[str, Any]:
+def _noop_progress(stage: str, message: str, **extra: Any) -> None:
+    print(f"[{stage}] {message}")
+
+
+def ingest_file(
+    filepath: str,
+    document_set_id: Optional[str] = None,
+    on_progress: Optional[Callable[..., None]] = None,
+) -> Dict[str, Any]:
     """Load, chunk, embed and store a file, tagging every chunk with a document_set_id.
 
     Returns {"document_set_id", "filename", "chunks_created"}. The caller needs the
-    document_set_id to query this upload later.
+    document_set_id to query this upload later. on_progress(stage, message, **extra)
+    is called at each stage so callers can stream progress to a UI.
     """
+    progress = on_progress or _noop_progress
+
     if document_set_id is None:
         document_set_id = str(uuid.uuid4())
         print(f"[ingest] generated new document_set_id: {document_set_id}")
@@ -36,18 +44,29 @@ def ingest_file(filepath: str, document_set_id: Optional[str] = None) -> Dict[st
 
     filename = os.path.basename(filepath)
 
+    progress("reading", f"Reading {filename}", document_set_id=document_set_id)
     text = load_file(filepath)
 
+    progress("chunking", "Splitting document into chunks")
     chunks = chunk_document(text, source_file=filename, company="User Upload")
     if not chunks:
         raise ValueError(f"{filename} produced no chunks — nothing to ingest.")
-    print(f"[ingest] split into {len(chunks)} chunks")
+
+    total = len(chunks)
+    progress("chunking", f"Split into {total} chunks", total_chunks=total)
 
     for i, chunk in enumerate(chunks, start=1):
         chunk["embedding"] = embed_text(chunk["text"])
-        if i % 25 == 0 or i == len(chunks):
-            print(f"[ingest] embedded {i}/{len(chunks)} chunks")
+        if i % 5 == 0 or i == total:
+            progress(
+                "embedding",
+                f"Embedding chunk {i} of {total}",
+                current=i,
+                total_chunks=total,
+                percent=round(i / total * 100),
+            )
 
+    progress("storing", f"Saving {total} chunks to the database", total_chunks=total)
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         with conn:
@@ -70,12 +89,18 @@ def ingest_file(filepath: str, document_set_id: Optional[str] = None) -> Dict[st
                         ),
                     )
     except Exception as e:
-        print(f"[ingest] FAILED inserting chunks for {filename}: {e}")
+        progress("error", f"Failed saving chunks for {filename}: {e}")
         raise
     finally:
         conn.close()
 
-    print(f"[ingest] stored {len(chunks)} chunks under document_set_id={document_set_id}")
+    progress(
+        "done",
+        f"Ready — {total} chunks indexed",
+        document_set_id=document_set_id,
+        filename=filename,
+        total_chunks=total,
+    )
     return {
         "document_set_id": document_set_id,
         "filename": filename,
@@ -95,50 +120,3 @@ def count_chunks(document_set_id: str) -> int:
             return cur.fetchone()[0]
     finally:
         conn.close()
-
-
-class IngestionPipeline:
-    """Orchestrates: load -> chunk -> embed -> store."""
-
-    def __init__(self, db_session: AsyncSession):
-        self.db = db_session
-        self.loader = DocumentLoader()
-        self.chunker = TextChunker()
-        self.embedder = EmbeddingWrapper()
-
-    async def ingest_bytes(self, file_bytes: bytes, filename: str) -> Dict[str, Any]:
-        if filename.endswith(".pdf"):
-            raw_docs = self.loader.load_pdf(file_bytes, filename)
-        else:
-            raw_docs = self.loader.load_text(file_bytes.decode("utf-8", errors="ignore"), filename)
-
-        chunks = self.chunker.split_documents(raw_docs)
-        texts = [c["content"] for c in chunks]
-        embeddings = await self.embedder.embed_documents(texts)
-
-        doc_record = DocumentModel(
-            id=str(uuid.uuid4()),
-            filename=filename,
-            file_type=filename.split(".")[-1]
-        )
-        self.db.add(doc_record)
-
-        for i, chunk in enumerate(chunks):
-            chunk_record = DocumentChunkModel(
-                id=str(uuid.uuid4()),
-                document_id=doc_record.id,
-                chunk_index=chunk["chunk_index"],
-                content=chunk["content"],
-                embedding=embeddings[i],
-                metadata_json=chunk["metadata"]
-            )
-            self.db.add(chunk_record)
-
-        await self.db.commit()
-
-        return {
-            "document_id": doc_record.id,
-            "filename": filename,
-            "num_chunks": len(chunks),
-            "status": "completed"
-        }

@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     TOP_K_HYBRID: int = 5
     CONFIDENCE_THRESHOLD: float = 0.7
 
+    # Frontend origins allowed to call this API (comma separated)
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3100,http://127.0.0.1:3100"
+    )
+
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
     def get_database_url(self) -> str:
         if self.DATABASE_URL:
             return self.DATABASE_URL

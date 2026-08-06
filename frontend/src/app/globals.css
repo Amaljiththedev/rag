@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/* ====================================================================
+   Document Chat — editorial design language
+
+   Deliberately NOT a dashboard. The reference is a printed reading
+   room: serif display type, hairline rules instead of cards, one warm
+   accent, near-square corners. Chrome stays quiet so the document's
+   text is the loudest thing on screen.
+
+   Do not add shadows or pill radii here — that is the other project's
+   language and the two apps should never be mistaken for each other.
+   ==================================================================== */
+
+@theme {
+  /* ---- Ink ramp: warm-tinted greys, not neutral ------------------- */
+  --color-ink-50: #f7f6f3;
+  --color-ink-100: #efede8;
+  --color-ink-200: #e3e0d8; /* hairline rule            */
+  --color-ink-300: #c9c4b8;
+  --color-ink-400: #9c968a;
+  --color-ink-500: #6b6660; /* secondary text           */
+  --color-ink-600: #4a4641;
+  --color-ink-700: #33302c;
+  --color-ink-800: #232120;
+  --color-ink-900: #1a1a1a; /* primary text             */
+
+  /* ---- Accent: burnt amber, used sparingly ------------------------ */
+  --color-accent: #b45309;
+  --color-accent-soft: #fdf6ec;
+  --color-accent-rule: #e8d5b7;
+
+  --color-paper: #ffffff;
+  --color-surface: #faf9f7;
+
+  --color-danger: #9f1239;
+  --color-danger-bg: #fdf2f4;
+
+  /* ---- Near-square. No pills. ------------------------------------- */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink-900);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Small-caps section labels — a print convention, used for nav
+   headings and citation labels. */
+.label-caps {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-400);
+}
+
+.font-display {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+}
+
+/* Answers are long-form reading, so they get serif and a wider
+   measure than UI text. */
+.prose-answer {
+  font-family: var(--font-display), ui-serif, Georgia, serif;
+  font-size: 19px;
+  line-height: 1.62;
+  color: var(--color-ink-800);
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    #efede8 0%,
+    #e3e0d8 22%,
+    #f7f6f3 42%,
+    #efede8 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-sweep 1.7s linear infinite;
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-rise {
+  animation: fade-rise 0.28s ease-out both;
+}
+
+/* The active stage marker: a slow ink-fill pulse, not a spinner. */
+@keyframes stage-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.stage-pulse {
+  animation: stage-pulse 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer,
+  .fade-rise,
+  .stage-pulse {
+    animation: none;
+  }
+}

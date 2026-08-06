@@ -1,7 +1,11 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from app.generation.generate import generate_answer
 from app.ingestion.pipeline import count_chunks
+from app.progress import make_emitter
 from app.schemas.session import SessionQueryRequest, SessionQueryResponse
 
 router = APIRouter()
@@ -10,9 +14,11 @@ router = APIRouter()
 @router.post("/query", response_model=SessionQueryResponse)
 async def query_documents(request: SessionQueryRequest):
     """Answer a question using only the chunks in the caller's document set."""
-    n_chunks = count_chunks(request.document_set_id)
+    emit = make_emitter(request.channel, asyncio.get_running_loop())
+
+    n_chunks = await run_in_threadpool(count_chunks, request.document_set_id)
     if n_chunks == 0:
-        print(f"[query] rejected unknown/empty set {request.document_set_id}")
+        emit("error", "That document set is empty or unknown.")
         raise HTTPException(
             status_code=404,
             detail=(
@@ -21,16 +27,18 @@ async def query_documents(request: SessionQueryRequest):
             ),
         )
 
-    print(f"[query] set {request.document_set_id} has {n_chunks} chunks")
-
     try:
-        result = generate_answer(
+        emit("retrieving", "Searching your document")
+        result = await run_in_threadpool(
+            generate_answer,
             request.question,
             request.document_set_id,
-            top_k=request.top_k,
+            request.top_k,
+            emit,
         )
     except Exception as e:
-        print(f"[query] generation failed: {e}")
+        emit("error", f"Generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
+    emit("done", "Answer ready")
     return SessionQueryResponse(**result)
