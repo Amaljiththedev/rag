@@ -1,23 +1,24 @@
+# Runtime dependencies only. Kept minimal deliberately: the deployment target
+# is a 2 GB instance, and pip install of the old langchain/langgraph/openai
+# stack was both unused and the largest thing in the image.
+#
+# Verified against actual imports in backend/app: dotenv, fastapi, groq,
+# pdfplumber, psycopg2, pydantic, pydantic_settings, sentence_transformers,
+# starlette. Test/eval extras live in requirements-dev.txt.
+
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
-sqlalchemy>=2.0.30
-asyncpg>=0.29.0
-pgvector>=0.2.5
-alembic>=1.13.1
-langchain>=0.2.0
-langchain-openai>=0.1.7
-langchain-community>=0.2.0
-langgraph>=0.0.55
-openai>=1.30.0
-pypdf>=4.2.0
+python-dotenv>=1.0.0
+
+psycopg2-binary>=2.9.9
+
+# Pulls torch. On aarch64 (Graviton) PyPI serves a CPU-only wheel, which is
+# far smaller than the CUDA-bundled x86 default.
+sentence-transformers>=3.0.0
+
 pdfplumber>=0.11.0
-httpx>=0.27.0
-python-multipart>=0.0.9
-pytest>=8.2.0
-pytest-asyncio>=0.23.6
-sentence-transformers
-psycopg2-binary
-groq
-python-dotenv
+groq>=0.11.0

@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Atlas RAG backend - single Graviton instance running Postgres with pgvector,
+  the FastAPI service, and Caddy for automatic HTTPS. Sized for an AWS Free plan
+  account, so everything lives in one stack and tears down with one command.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: DuckDNS hostname that will resolve to this instance.
+    Default: atalsssss.duckdns.org
+
+  RepoUrl:
+    Type: String
+    Default: https://github.com/Amaljiththedev/rag.git
+
+  RepoBranch:
+    Type: String
+    Default: main
+
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.micro, t4g.small, t4g.medium]
+    Description: >-
+      t4g.small (2 GB) is the floor. sentence-transformers plus torch plus
+      Postgres needs roughly 1 GB resident; t4g.micro will OOM under load.
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+# The Postgres password is generated on the instance at first boot rather than
+# passed in as a parameter, so it never travels through CloudFormation, the
+# console, or anyone's terminal. Postgres is not published to the host, so the
+# only thing that ever needs it is the API container beside it.
+
+Resources:
+  # Admin access is via SSM Session Manager, so no SSH key and no port 22.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-own-parameters
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters]
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/atlas/*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Atlas backend - HTTP and HTTPS only
+      SecurityGroupIngress:
+        # 80 is required for the ACME HTTP-01 challenge, not for app traffic.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Lets Encrypt HTTP-01 challenge and HTTPS redirect
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: API and WebSocket traffic
+      Tags:
+        - Key: Name
+          Value: atlas-backend-sg
+
+  # Static address so the DuckDNS record stays valid across stop/start cycles.
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: atlas-backend-eip
+
+  EipAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      InstanceId: !Ref Instance
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: atlas-backend
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee /var/log/atlas-bootstrap.log) 2>&1
+
+          dnf update -y
+          dnf install -y docker git
+
+          # Building torch on a 2 GB box is the tightest moment in this whole
+          # bootstrap. Swap keeps pip from being OOM-killed mid-install.
+          fallocate -l 4G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+          systemctl enable --now docker
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL \
+            "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          git clone --branch ${RepoBranch} --depth 1 ${RepoUrl} /opt/atlas
+          cd /opt/atlas
+
+          # The Groq key is read from SSM at boot, never baked into the image
+          # or the template. Empty until it is set - see the stack outputs.
+          GROQ_KEY="$(aws ssm get-parameter --name /atlas/groq-api-key \
+            --with-decryption --region ${AWS::Region} \
+            --query Parameter.Value --output text 2>/dev/null || echo '')"
+
+          DB_PASS="$(openssl rand -hex 24)"
+
+          cat > /opt/atlas/.env <<ENVFILE
+          POSTGRES_SERVER=db
+          POSTGRES_PORT=5432
+          POSTGRES_USER=rag_user
+          POSTGRES_PASSWORD=$DB_PASS
+          POSTGRES_DB=rag_db
+          GROQ_API_KEY=$GROQ_KEY
+          LLM_PROVIDER=groq
+          LLM_MODEL=openai/gpt-oss-120b
+          EMBEDDING_MODEL=all-MiniLM-L6-v2
+          CORS_ORIGINS=https://atlas-zeta-flame.vercel.app,https://${DomainName}
+          ENVFILE
+          chmod 600 /opt/atlas/.env
+
+          cat > /opt/atlas/docker-compose.prod.yml <<'COMPOSE'
+          services:
+            db:
+              image: pgvector/pgvector:pg16
+              restart: always
+              # Credentials come from .env, written at first boot. Deliberately
+              # no ports mapping: Postgres stays on the internal docker network.
+              env_file: .env
+              volumes:
+                - pgdata:/var/lib/postgresql/data
+                - ./scripts/migrations:/docker-entrypoint-initdb.d:ro
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
+                interval: 10s
+                timeout: 5s
+                retries: 10
+
+            api:
+              build:
+                context: .
+                dockerfile: Dockerfile
+              restart: always
+              env_file: .env
+              environment:
+                POSTGRES_SERVER: db
+              depends_on:
+                db:
+                  condition: service_healthy
+              expose:
+                - "8000"
+
+            caddy:
+              image: caddy:2-alpine
+              restart: always
+              ports:
+                - "80:80"
+                - "443:443"
+              volumes:
+                - ./Caddyfile:/etc/caddy/Caddyfile:ro
+                - caddydata:/data
+                - caddyconfig:/config
+              depends_on:
+                - api
+
+          volumes:
+            pgdata:
+            caddydata:
+            caddyconfig:
+          COMPOSE
+
+          # Caddy provisions and renews the certificate itself. reverse_proxy
+          # passes WebSocket upgrades through without extra configuration.
+          cat > /opt/atlas/Caddyfile <<CADDY
+          ${DomainName} {
+            reverse_proxy api:8000
+          }
+          CADDY
+
+          docker compose -f docker-compose.prod.yml up -d --build
+
+          echo "atlas bootstrap complete"
+
+Outputs:
+  PublicIp:
+    Description: Point the DuckDNS record at this address.
+    Value: !Ref ElasticIp
+
+  ApiBaseUrl:
+    Description: Set this as NEXT_PUBLIC_API_BASE_URL in Vercel.
+    Value: !Sub https://${DomainName}
+
+  WsBaseUrl:
+    Description: Set this as NEXT_PUBLIC_WS_BASE_URL in Vercel.
+    Value: !Sub wss://${DomainName}
+
+  SetGroqKeyCommand:
+    Description: Run this yourself to store the Groq key, then reboot the instance.
+    Value: !Sub >-
+      aws ssm put-parameter --name /atlas/groq-api-key --type SecureString
+      --value YOUR_KEY_HERE --region ${AWS::Region} --overwrite
+
+  InstanceId:
+    Description: Use with ec2 stop-instances / start-instances to control spend.
+    Value: !Ref Instance
+
+  ShellCommand:
+    Description: Open a shell without SSH.
+    Value: !Sub aws ssm start-session --target ${Instance} --region ${AWS::Region}
