@@ -132,10 +132,21 @@ Resources:
 
           systemctl enable --now docker
           mkdir -p /usr/local/lib/docker/cli-plugins
+
           curl -fsSL \
             "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64" \
             -o /usr/local/lib/docker/cli-plugins/docker-compose
           chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+          # AL2023's docker package has no buildx plugin, but Compose v2.30+
+          # refuses to build without it ("compose build requires buildx 0.17.0
+          # or later"). Install it explicitly or the image is never built.
+          BUILDX_VER="$(curl -sI https://github.com/docker/buildx/releases/latest \
+            | grep -i '^location:' | sed 's#.*/tag/##' | tr -d '\r')"
+          curl -fsSL \
+            "https://github.com/docker/buildx/releases/download/$BUILDX_VER/buildx-$BUILDX_VER.linux-arm64" \
+            -o /usr/local/lib/docker/cli-plugins/docker-buildx
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
           git clone --branch ${RepoBranch} --depth 1 ${RepoUrl} /opt/atlas
           cd /opt/atlas
