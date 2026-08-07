@@ -3,17 +3,24 @@ Retrieval module for eval harness.
 Wraps the search_chunks function from scripts/search_chunks.py so that
 evals/run_eval.py can do: from backend.app.retrieval.search import search_chunks
 """
+import os
+
 import psycopg2
 from sentence_transformers import SentenceTransformer
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+# Read from the environment so the same image runs locally and in the
+# container network. These were previously hardcoded to localhost, which only
+# worked because the local docker-compose publishes 5432 to the host; inside a
+# compose network the database is another service and the password is
+# generated at deploy time. Defaults keep local development unchanged.
 DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "rag_db",
-    "user": "rag_user",
-    "password": "rag_password",
+    "host": os.getenv("POSTGRES_SERVER", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", "5432")),
+    "dbname": os.getenv("POSTGRES_DB", "rag_db"),
+    "user": os.getenv("POSTGRES_USER", "rag_user"),
+    "password": os.getenv("POSTGRES_PASSWORD", "rag_password"),
 }
 
 
