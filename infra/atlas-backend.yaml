@@ -104,6 +104,13 @@ Resources:
       InstanceType: !Ref InstanceType
       IamInstanceProfile: !Ref InstanceProfile
       SecurityGroupIds: [!GetAtt SecurityGroup.GroupId]
+      # An accidental `ec2 stop-instances` takes the public site down, and
+      # starting again is not guaranteed - a stopped instance releases its
+      # hardware and can be refused with InsufficientInstanceCapacity. Both
+      # protections must be cleared explicitly before the instance can be
+      # stopped or terminated.
+      DisableApiStop: true
+      DisableApiTermination: true
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:
