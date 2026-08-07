@@ -32,12 +32,19 @@ class Settings(BaseSettings):
     CONFIDENCE_THRESHOLD: float = 0.7
 
     # Frontend origins allowed to call this API (comma separated)
-    # Local dev plus the deployed Vercel frontend. Override with the
-    # CORS_ORIGINS env var in production to add preview deployments.
+    # Local dev plus the production Vercel domain.
     CORS_ORIGINS: str = (
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:3100,http://127.0.0.1:3100,"
         "https://atlas-zeta-flame.vercel.app"
+    )
+
+    # Vercel mints a fresh hostname for every preview deployment, so an exact
+    # allowlist breaks on each deploy. Match this project's previews by pattern
+    # instead. Deliberately scoped to the project slug rather than *.vercel.app,
+    # which would let any site hosted on Vercel call this API.
+    CORS_ORIGIN_REGEX: str = (
+        r"^https://atlas-[a-z0-9]+-amals-projects-c3ce0b43\.vercel\.app$"
     )
 
     def cors_origins(self) -> list[str]:
